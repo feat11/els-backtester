@@ -667,122 +667,86 @@ def plot_step_distribution(df, els):
 
 def plot_single_case_path(detail, start_date):
     """
-    특정 케이스의 일별 경로 시각화
-    - 수정 2: 낙인 터치 자산이 여러 개일 경우, 서로 다른 색상(위험 색상군)으로 구분
+    [수정] 낙인 여부와 상관없이 'Worst-of' 라인을 항상 그려서
+    만기 시점의 진짜 수익률 위치를 시각적으로 확인하도록 개선
     """
     fig = go.Figure()
     
     dates = detail["dates"]
-    worst_path = [x * 100 for x in detail["worst_path"]]
+    worst_path = [x * 100 for x in detail["worst_path"]] # 이것이 실제 평가 기준선
     ki_level = detail["ki_level"] * 100
     
-    # 개별 자산 경로 데이터
     asset_paths = detail.get("asset_paths", {})
-    asset_names = detail.get("asset_names", [])
     
-    # 1. 낙인 터치한 자산 식별
-    ki_touched_assets = []
-    if detail["ki_touched"]:
-        for asset_name in asset_names:
-            asset_path = asset_paths.get(asset_name, [])
-            if any(x < detail["ki_level"] for x in asset_path):
-                ki_touched_assets.append(asset_name)
-
-    # 2. 낙인 구간 (Red Zone) 표시
-    fig.add_hrect(
-        y0=0, y1=ki_level,
-        fillcolor="red", opacity=0.1, layer="below", line_width=0,
-        annotation_text="낙인 구간 (원금손실 위험)", 
-        annotation_position="bottom right",
-        annotation=dict(font_size=10, font_color="rgba(255,255,255,0.5)")
-    )
-    
-    # 3. 차트 그리기 로직 분기
-    if detail["ki_touched"]:
-        # [Case A] 낙인 발생: 범인(자산)들만 그린다
-        
-        # 위험 색상 팔레트 (빨강, 주황, 자주, 핫핑크 등 눈에 띄는 색)
-        danger_colors = ['#FF0000', '#FF8C00', '#FF00FF', '#DC143C']
-        
-        for i, asset_name in enumerate(ki_touched_assets):
-            asset_path = [x * 100 for x in asset_paths.get(asset_name, [])]
-            
-            # 자산별 고유 색상 할당
-            line_color = danger_colors[i % len(danger_colors)]
-            
-            fig.add_trace(go.Scatter(
-                x=dates, y=asset_path,
-                mode='lines',
-                name=f'{asset_name} (낙인 원인)',
-                line=dict(color=line_color, width=3), # 굵은 실선 + 고유 색상
-                hovertemplate=f"<b>{asset_name}</b><br>날짜: %{{x}}<br>성과: %{{y:.2f}}%<extra></extra>"
-            ))
-            
-    else:
-        # [Case B] 낙인 미발생: Worst-of 라인 하나만 깔끔하게
+    # 1. 개별 자산들 흐리게 그리기 (배경)
+    colors = ['#FFA07A', '#98FB98', '#87CEFA'] # 연한 색상들
+    for i, (name, path) in enumerate(asset_paths.items()):
+        path_pct = [x * 100 for x in path]
         fig.add_trace(go.Scatter(
-            x=dates, y=worst_path,
+            x=dates, y=path_pct,
             mode='lines',
-            name='Worst-of (종가)',
-            line=dict(color='rgb(99, 110, 250)', width=3),
-            hovertemplate="<b>Worst-of</b><br>날짜: %{{x}}<br>성과: %{{y:.2f}}%<extra></extra>"
+            name=name,
+            line=dict(width=1, dash='dot'), # 점선으로 얇게
+            opacity=0.7
         ))
 
-    # 4. 낙인 배리어 라인
+    # 2. Worst-of 라인 (진한 파란색) - 이것이 진짜 내 돈의 운명
+    fig.add_trace(go.Scatter(
+        x=dates, y=worst_path,
+        mode='lines',
+        name='Worst-of (평가 기준)',
+        line=dict(color='white', width=3), # 흰색 굵은 실선 (다크모드용)
+        hovertemplate="<b>Worst-of</b><br>날짜: %{x}<br>성과: %{y:.2f}%<extra></extra>"
+    ))
+    
+    # 3. 낙인 배리어
     fig.add_hline(
         y=ki_level, line_dash="dash", line_color="red", line_width=2,
         annotation_text=f"낙인 {ki_level:.0f}%", annotation_position="right"
     )
     
-    # 5. 원금 기준선
-    fig.add_hline(
-        y=100, line_dash="dot", line_color="rgba(255,255,255,0.5)", line_width=1,
-        annotation_text="원금", annotation_position="left"
-    )
+    # 4. 원금 기준선
+    fig.add_hline(y=100, line_color="gray", line_width=1)
     
-    # 6. KI 터치 지점 마커 (낙인 발생 시에만)
+    # 5. 낙인 발생 지점 (X 표시)
     if detail["ki_touched"] and detail["ki_touch_date"]:
         ki_date = detail["ki_touch_date"]
         try:
             ki_idx = dates.index(ki_date)
-            # 마커는 Worst Path 위에 찍어서 "이 시점에 깨졌다"는 걸 표시
             ki_val = worst_path[ki_idx]
-            
             fig.add_trace(go.Scatter(
                 x=[ki_date], y=[ki_val],
                 mode='markers',
-                name='최초 낙인 발생',
-                marker=dict(color='yellow', size=12, symbol='x', line=dict(width=2, color='red')),
-                hovertemplate=f"최초 낙인!<br>날짜: {ki_date.date()}<br>지수: {ki_val:.2f}%<extra></extra>"
+                name='낙인 발생',
+                marker=dict(color='red', size=12, symbol='x-open', line=dict(width=3)),
             ))
         except: pass
-    
-    # 7. 상환 시점 마커
+        
+    # 6. 상환 지점 (별표)
     redemption_date = detail["redemption_date"]
     try:
         redemption_idx = dates.index(redemption_date)
         redemption_val = worst_path[redemption_idx]
-        redemption_step = detail["redemption_step"]
-        redemption_label = f"{redemption_step}차 조기상환" if redemption_step else "만기상환"
         
-        marker_color = 'green' if not detail["ki_touched"] else ('red' if redemption_val < 100 else 'green')
-
+        # 만기 시점의 Worst 값이 낙인 배리어보다 높은지 낮은지 확인
+        is_happy_ending = (redemption_val >= ki_level) if detail["ki_touched"] else True
+        # ※ 주의: 낙인을 이미 터치했다면, 만기 때 조기상환 배리어(보통 70~80)를 넘어야 함.
+        # 시각적 편의를 위해 수익(+)이면 초록, 손실(-)이면 빨강으로 표시
+        final_return = redemption_val - 100
+        marker_color = '#00ff00' if final_return >= 0 else '#ff0000'
+        
         fig.add_trace(go.Scatter(
             x=[redemption_date], y=[redemption_val],
-            mode='markers',
-            name=redemption_label,
-            marker=dict(color=marker_color, size=15, symbol='star', line=dict(width=2, color='white')),
-            hovertemplate=f"{redemption_label}<br>날짜: {redemption_date.date()}<br>종가: {redemption_val:.2f}%<extra></extra>"
+            mode='markers+text',
+            name='최종 상환',
+            text=[f"{redemption_val:.1f}%"],
+            textposition="top center",
+            marker=dict(color=marker_color, size=15, symbol='star'),
         ))
     except: pass
 
-    # 제목 설정 (색상 태그 제거 - Plotly 제목엔 HTML 컬러가 안 먹힐 수 있음)
-    title_suffix = ""
-    if ki_touched_assets:
-        title_suffix = f" (원인 자산: {', '.join(ki_touched_assets)})"
-    
     fig.update_layout(
-        title=dict(text=f"케이스 상세 분석: {start_date.date()} 발행{title_suffix}", x=0, y=0.95),
+        title=f"케이스 상세: {start_date.date()} 발행 (Worst-of 기준)",
         xaxis_title="날짜", yaxis_title="성과 (%)",
         height=500, template="plotly_dark", hovermode="x unified"
     )
@@ -1202,3 +1166,4 @@ with right:
     else:
 
         st.info("왼쪽에서 조건을 설정하고 실행하세요.")
+
