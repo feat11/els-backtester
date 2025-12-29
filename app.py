@@ -48,6 +48,8 @@ def snap_next_trading_day(index: pd.DatetimeIndex, target: pd.Timestamp):
 st.markdown(
     """
     <style>
+    /* ... (기존 폰트, 카드 스타일 등은 유지) ... */
+    
     @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
     html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     [data-testid="stHeaderActionElements"] { display: none !important; }
@@ -78,7 +80,7 @@ st.markdown(
         padding-bottom: 8px;
     }
 
-    /* 요약 박스 */
+    /* ★ [수정됨] 요약 박스 (Summary) - 시원시원한 리스트형 ★ */
     .summary {
         background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(79,172,254,0.05) 100%);
         border: 1px solid rgba(79, 172, 254, 0.3);
@@ -87,21 +89,24 @@ st.markdown(
         margin-bottom: 20px;
     }
     
+    /* 한 줄에 하나씩 (Flex + Bottom Border) */
     .summary-row {
         display: flex;
-        justify-content: space-between;
+        justify-content: space-between; /* 양끝 정렬 */
         align-items: center;
-        padding: 10px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.1);
+        padding: 10px 0; /* 위아래 여백 */
+        border-bottom: 1px solid rgba(255,255,255,0.1); /* 구분선 */
     }
-    .summary-row:last-child { border-bottom: none; }
+    .summary-row:last-child { border-bottom: none; } /* 마지막 줄은 선 없음 */
 
+    /* 라벨 (왼쪽) */
     .summary-label { 
         color: #ccc; 
         font-size: 15px; 
         font-weight: 500;
     }
     
+    /* 값 (오른쪽) - 크고 진하게 */
     .summary-val { 
         color: #fff; 
         font-size: 17px; 
@@ -109,14 +114,14 @@ st.markdown(
         text-align: right;
     }
 
-    /* 통계 박스 */
+    /* 통계 박스 등 나머지 스타일 유지... */
     .stat-container { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
     .stat-box { flex: 1; min-width: 140px; background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 15px; text-align: center; border: 1px solid rgba(255,255,255,0.05); }
     .stat-title { font-size: 13px; color: #aaa; margin-bottom: 5px; }
     .stat-value { font-size: 24px; font-weight: 800; color: #4facfe; }
     .stat-sub { font-size: 12px; color: #888; }
     
-    /* 테이블 스타일 */
+    /* 기존 테이블 스타일 등... */
     .dist-table { width: 100%; font-size: 14px; text-align: center; border-collapse: collapse; margin-top: 5px; }
     .dist-table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); border-right: 1px solid rgba(255,255,255,0.05); }
     .dist-table td:last-child { border-right: none; }
@@ -175,37 +180,45 @@ class StepDownELS:
 # =============================
 # 데이터
 # =============================
+# 기존 download_prices 함수를 이걸로 교체하세요!
+
 @st.cache_data(show_spinner=False, ttl=3600)
 def download_prices(tickers, start, end):
     try:
-        # auto_adjust=False로 설정하여 Adj Close 사용
+        # 1. auto_adjust=False로 설정 (Raw 데이터 확보)
         df = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False)
         
-        # 'Adj Close'만 추출 (수정주가)
+        # 2. 'Adj Close'만 추출 (수정주가 사용)
         if isinstance(df.columns, pd.MultiIndex):
+            # 최신 yfinance: (Price, Ticker) 구조
             if "Adj Close" in df.columns.get_level_values(0):
                 df = df["Adj Close"]
             elif "Close" in df.columns.get_level_values(0):
                 df = df["Close"]
         else:
+            # 구버전 또는 단일 티커
             if "Adj Close" in df.columns:
                 df = df["Adj Close"]
             elif "Close" in df.columns:
                 df = df["Close"]
         
-        # Series -> DataFrame 변환
+        # 3. Series -> DataFrame 변환
         if isinstance(df, pd.Series):
             df = df.to_frame()
+            # 단일 티커일 경우 컬럼명 지정
             if isinstance(tickers, str):
                 df.columns = [tickers]
             elif isinstance(tickers, list) and len(tickers) == 1:
                 df.columns = tickers
 
-        # 컬럼 순서를 요청한 tickers 순서대로 정렬
+        # 4. [핵심] 컬럼 순서를 요청한 'tickers' 리스트 순서대로 강제 정렬
+        # (yfinance는 알파벳순으로 주지만, 우리는 선택한 순서가 필요함)
         if isinstance(tickers, list) and len(tickers) > 1:
+            # 데이터에 있는 티커만 추려서 정렬 (없는 티커 에러 방지)
             available_tickers = [t for t in tickers if t in df.columns]
             df = df[available_tickers]
 
+        # 5. 데이터 정리
         df = df.ffill().dropna()
         
         if df.empty:
@@ -225,28 +238,37 @@ def get_observation_dates(start_date, maturity_months, obs_interval_months):
     obs_dates = []
     n_obs = maturity_months // obs_interval_months
     
+    # start_date가 Timestamp가 아니면 변환
     if not isinstance(start_date, pd.Timestamp):
         start_date = pd.Timestamp(start_date)
     
     for i in range(1, n_obs + 1):
         obs_date = start_date + relativedelta(months=i * obs_interval_months)
+        # Timestamp로 변환
         obs_date = pd.Timestamp(obs_date)
         obs_dates.append(obs_date)
     
     return obs_dates
 
 # =============================
-# 시뮬레이션
+# 시뮬레이션 (KI 버그 수정)
 # =============================
 def simulate_els(price_window, els, start_date, return_detail=False):
-    """ELS 시뮬레이션"""
+    """
+    ELS 시뮬레이션 (조기상환 케이스도 KI 여부를 올바르게 기록)
+    
+    return_detail=True면 일별 경로 데이터도 반환
+    """
     norm = price_window / price_window.iloc[0]
     
+    # 단일 자산이면 DataFrame으로 변환
     if isinstance(norm, pd.Series):
         norm = norm.to_frame()
     
+    # worst-of 경로 (일자별, 종가 기준)
     worst_series = norm.min(axis=1)
     
+    # early_levels 길이 검증
     n_obs = els.maturity_months // els.obs_interval_months
     if len(els.early_levels) != n_obs:
         raise ValueError(
@@ -254,19 +276,26 @@ def simulate_els(price_window, els, start_date, return_detail=False):
             f"관측 횟수({n_obs})와 일치하지 않습니다."
         )
     
+    # 관측일 계산 (캘린더 기반)
     obs_dates = get_observation_dates(start_date, els.maturity_months, els.obs_interval_months)
     
     # 조기상환 체크
     for i, (obs_date, lvl) in enumerate(zip(obs_dates, els.early_levels)):
+        # 관측일을 실제 거래일로 스냅 (익영업일 원칙)
         obs_eval = snap_next_trading_day(norm.index, obs_date)
         
         if obs_eval is None:
+            # 관측일이 데이터 범위를 벗어남
             break
         
+        # 관측일까지의 KI 발생 여부 체크 (중요!)
         ki_up_to_obs = bool((worst_series.loc[:obs_eval] < els.knock_in).any())
+        
+        # 관측일의 worst 성과
         obs_worst = float(worst_series.loc[obs_eval])
         
         if obs_worst >= float(lvl):
+            # 조기상환 성공
             holding_days = (obs_eval - start_date).days
             holding_years = holding_days / 365.25
             payoff = 1.0 + els.coupon_annual * holding_years
@@ -275,8 +304,8 @@ def simulate_els(price_window, els, start_date, return_detail=False):
                 detail = {
                     "dates": worst_series.index.tolist(),
                     "worst_path": worst_series.values.tolist(),
-                    "asset_paths": norm.to_dict('list'),
-                    "asset_names": norm.columns.tolist(),
+                    "asset_paths": norm.to_dict('list'),  # 개별 자산 경로 추가
+                    "asset_names": norm.columns.tolist(),  # 자산 이름
                     "ki_level": els.knock_in,
                     "ki_touched": ki_up_to_obs,
                     "ki_touch_date": worst_series[worst_series < els.knock_in].index[0] if ki_up_to_obs else None,
@@ -287,13 +316,15 @@ def simulate_els(price_window, els, start_date, return_detail=False):
             
             return payoff - 1.0, ki_up_to_obs, i + 1
     
-    # 만기까지 도달
+    # 만기까지 도달 - KI 체크
     ki_occurred = bool((worst_series < els.knock_in).any())
     final_worst = float(worst_series.iloc[-1])
     
     if ki_occurred:
+        # 낙인 찍힘 → 손실 확정
         payoff = final_worst
     else:
+        # 낙인 안 찍힘 → 원금 + 만기 쿠폰
         maturity_years = els.maturity_months / 12.0
         payoff = 1.0 + els.coupon_annual * maturity_years
     
@@ -301,8 +332,8 @@ def simulate_els(price_window, els, start_date, return_detail=False):
         detail = {
             "dates": worst_series.index.tolist(),
             "worst_path": worst_series.values.tolist(),
-            "asset_paths": norm.to_dict('list'),
-            "asset_names": norm.columns.tolist(),
+            "asset_paths": norm.to_dict('list'),  # 개별 자산 경로 추가
+            "asset_names": norm.columns.tolist(),  # 자산 이름
             "ki_level": els.knock_in,
             "ki_touched": ki_occurred,
             "ki_touch_date": worst_series[worst_series < els.knock_in].index[0] if ki_occurred else None,
@@ -313,114 +344,8 @@ def simulate_els(price_window, els, start_date, return_detail=False):
     
     return payoff - 1.0, ki_occurred, None
 
-def run_backtest(prices, els, show_progress=False):
-    """백테스트 실행"""
-    rows = []
-    
-    total_cases = 0
-    for start_date in prices.index:
-        maturity_date = pd.Timestamp(start_date + relativedelta(months=els.maturity_months))
-        mat_eval = snap_next_trading_day(prices.index, maturity_date)
-        if mat_eval is None:
-            break
-        total_cases += 1
-    
-    if show_progress:
-        progress_bar = st.progress(0)
-        progress_text = st.empty()
-    
-    case_idx = 0
-    for start_date in prices.index:
-        maturity_date = pd.Timestamp(start_date + relativedelta(months=els.maturity_months))
-        mat_eval = snap_next_trading_day(prices.index, maturity_date)
-        
-        if mat_eval is None:
-            break
-        
-        if mat_eval < start_date:
-            continue
-        
-        try:
-            window = prices.loc[start_date:mat_eval]
-        except Exception:
-            continue
-        
-        if len(window) < 10:
-            continue
-        
-        try:
-            r, ki, step = simulate_els(window, els, start_date)
-            
-            rows.append({
-                "start_date": start_date,
-                "return": r, 
-                "ki": ki, 
-                "step": step,
-                "year": start_date.year
-            })
-            
-            case_idx += 1
-            if show_progress and case_idx % 10 == 0:
-                progress = case_idx / total_cases
-                progress_bar.progress(progress)
-                progress_text.text(f"백테스트 진행 중... {case_idx}/{total_cases} ({progress*100:.1f}%)")
-                
-        except Exception:
-            continue
-    
-    if show_progress:
-        progress_bar.progress(1.0)
-        progress_text.text(f"백테스트 완료! 총 {len(rows)}개 케이스 분석")
-        import time
-        time.sleep(0.5)
-        progress_bar.empty()
-        progress_text.empty()
-    
-    if len(rows) == 0:
-        return None
-    
-    return pd.DataFrame(rows)
-
-# =============================
-# DCA 시뮬레이션
-# =============================
-def simulate_dca(df, investment_per_week=1_000_000):
-    """주 1회 정액 투자 시뮬레이션"""
-    df = df.copy()
-    df['week'] = df['start_date'].dt.to_period('W')
-    weekly_cases = df.groupby('week').first().reset_index()
-    
-    total_invested = 0
-    profit_positive = 0
-    profit_negative = 0
-    
-    for idx, case in weekly_cases.iterrows():
-        total_invested += investment_per_week
-        profit_this_week = investment_per_week * case['return']
-        
-        if profit_this_week >= 0:
-            profit_positive += profit_this_week
-        else:
-            profit_negative += profit_this_week
-    
-    total_profit = profit_positive + profit_negative
-    total_value = total_invested + total_profit
-    
-    return {
-        'invested': total_invested,
-        'profit_positive': profit_positive,
-        'profit_negative': abs(profit_negative),
-        'profit': total_profit,
-        'value': total_value,
-        'return_pct': (total_value / total_invested - 1) * 100,
-        'weeks': len(weekly_cases)
-    }
-
-# =============================
-# 통계 렌더링
-# =============================
 def render_compact_stats(df, els):
-    """HTML 기반의 콤팩트한 통계 대시보드"""
+    """HTML 기반의 콤팩트한 통계 대시보드 출력"""
     N = len(df)
     win = (df["return"] >= 0).mean() * 100
     avg_return = df["return"].mean() * 100
@@ -432,6 +357,7 @@ def render_compact_stats(df, els):
     min_return = df["return"].min() * 100
     min_date = df.loc[df["return"].idxmin(), "start_date"].strftime("%Y-%m-%d")
     
+    # 1. 상단 주요 지표 (4개 카드)
     st.markdown(f"""
     <div class="stat-container">
         <div class="stat-box">
@@ -450,28 +376,32 @@ def render_compact_stats(df, els):
             <div class="stat-sub">({ki_n/N*100:.1f}%)</div>
         </div>
         <div class="stat-box">
-            <div class="stat-title">최소 수익률</div>
+            <div class="stat-title">최악의 수익률</div>
             <div class="stat-value" style="color: {'#ff4b4b' if min_return < 0 else '#ddd'}">{min_return:.2f}%</div>
             <div class="stat-sub">{min_date}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # 상환 차수 분포
+    # 2. 상환 차수 분포 (가로형 테이블)
+    # 데이터를 가로로 배치하여 공간 절약
     cols = []
     vals = []
     
+    # 조기상환
     for i in range(1, len(els.early_levels) + 1):
         c = int((df["step"] == i).sum())
-        if c > 0:
+        if c > 0: # 0건인 차수는 숨겨서 공간 절약 (원하면 주석 해제)
             cols.append(f"{i}차")
             vals.append(f"{c}<br><span style='font-size:10px; color:#888'>({c/N*100:.1f}%)</span>")
     
+    # 만기 상환
     maturity_n = int(df["step"].isna().sum())
     if maturity_n > 0:
         cols.append("만기")
         vals.append(f"{maturity_n}<br><span style='font-size:10px; color:#888'>({maturity_n/N*100:.1f}%)</span>")
         
+    # 테이블 HTML 생성
     header_html = "".join([f"<td><div class='dist-header'>{c}</div></td>" for c in cols])
     body_html = "".join([f"<td><div class='dist-val'>{v}</div></td>" for v in vals])
     
@@ -484,6 +414,136 @@ def render_compact_stats(df, els):
         </table>
     </div>
     """, unsafe_allow_html=True)
+
+def run_backtest(prices, els, show_progress=False):
+    """백테스트 실행 (캘린더 기반, 익영업일 원칙)"""
+    rows = []
+    
+    # 전체 케이스 수 계산 (progress bar용)
+    total_cases = 0
+    for start_date in prices.index:
+        maturity_date = pd.Timestamp(start_date + relativedelta(months=els.maturity_months))
+        mat_eval = snap_next_trading_day(prices.index, maturity_date)
+        if mat_eval is None:
+            break
+        total_cases += 1
+    
+    # Progress bar
+    if show_progress:
+        progress_bar = st.progress(0)
+        progress_text = st.empty()
+    
+    # 백테스트 실행
+    case_idx = 0
+    for start_date in prices.index:
+        # 만기일 계산 (캘린더 기반)
+        maturity_date = pd.Timestamp(start_date + relativedelta(months=els.maturity_months))
+        
+        # 만기일을 실제 거래일로 스냅 (익영업일 원칙)
+        mat_eval = snap_next_trading_day(prices.index, maturity_date)
+        
+        if mat_eval is None:
+            # 만기일이 데이터 범위를 벗어남
+            break
+        
+        if mat_eval < start_date:
+            # 논리적 오류 (발생 가능성 낮음)
+            continue
+        
+        # 해당 기간 데이터 추출 (정확하게 스냅된 만기일까지)
+        try:
+            window = prices.loc[start_date:mat_eval]
+        except Exception:
+            continue
+        
+        if len(window) < 10:  # 최소 데이터 체크
+            continue
+        
+        try:
+            r, ki, step = simulate_els(window, els, start_date)
+            
+            rows.append({
+                "start_date": start_date,
+                "return": r, 
+                "ki": ki, 
+                "step": step,
+                "year": start_date.year
+            })
+            
+            # Progress 업데이트
+            case_idx += 1
+            if show_progress and case_idx % 10 == 0:  # 10건마다 업데이트
+                progress = case_idx / total_cases
+                progress_bar.progress(progress)
+                progress_text.text(f"백테스트 진행 중... {case_idx}/{total_cases} ({progress*100:.1f}%)")
+                
+        except Exception:
+            # 개별 케이스 오류는 조용히 스킵
+            continue
+    
+    # Progress bar 정리
+    if show_progress:
+        progress_bar.progress(1.0)
+        progress_text.text(f"백테스트 완료! 총 {len(rows)}개 케이스 분석")
+        import time
+        time.sleep(0.5)
+        progress_bar.empty()
+        progress_text.empty()
+    
+    if len(rows) == 0:
+        return None
+    
+    return pd.DataFrame(rows)
+
+# =============================
+# 리포트 생성
+# =============================
+def build_report(df, els):
+    N = len(df)
+    win = (df["return"] >= 0).mean() * 100
+    avg_return = df["return"].mean() * 100
+    median_return = df["return"].median() * 100
+    
+    ki_n = int(df["ki"].sum())
+    loss_n = int((df["return"] < 0).sum())
+    ki_recovery = int(((df["ki"]) & (df["return"] >= 0)).sum())
+    
+    # 리스크 지표
+    std = df["return"].std() * 100
+    min_return = df["return"].min() * 100
+    min_return_date = df.loc[df["return"].idxmin(), "start_date"]
+    loss_10pct = int((df["return"] < -0.1).sum())
+    loss_20pct = int((df["return"] < -0.2).sum())
+    
+    lines = [
+        f"■ 통계 분석 결과 (총 {N}건)",
+        f"  • 상환 성공률   : {win:6.2f} %",
+        f"  • 평균 수익률   : {avg_return:6.2f} %",
+        f"  • 중위 수익률   : {median_return:6.2f} %",
+        f"  • 변동성        : {std:6.2f} %",
+        "",
+        "[ 리스크 지표 ]",
+        f"  • 최소 수익률   : {min_return:6.2f} %",
+        f"    └ 발생일      : {min_return_date.date()}",
+        f"  • 10% 이상 손실 : {loss_10pct:4d} ({loss_10pct/N*100:4.1f}%)",
+        f"  • 20% 이상 손실 : {loss_20pct:4d} ({loss_20pct/N*100:4.1f}%)",
+        "",
+        "[ 낙인(KI) 발생 현황 ]",
+        f"  • 낙인 발생     : {ki_n:4d} ({ki_n/N*100:4.1f}%)",
+        f"  • 원금 손실 확정 : {loss_n:4d} ({loss_n/N*100:4.1f}%)",
+        f"  • 낙인 후 회복   : {ki_recovery:4d} ({ki_recovery/N*100:4.1f}%)",
+        "",
+        "[ 상환 차수 분포 ]"
+    ]
+    
+    for i in range(1, len(els.early_levels) + 1):
+        c = int((df["step"] == i).sum())
+        lines.append(f"  • {i}차 조기상환 : {c:4d} ({c/N*100:4.1f}%)")
+    
+    maturity = int(df["step"].isna().sum())
+    lines.append(f"  • 만기상환     : {maturity:4d} ({maturity/N*100:4.1f}%)")
+    
+    return "\n".join(lines)
 
 def build_yearly_report(df):
     """연도별 성과 분석"""
@@ -606,46 +666,49 @@ def plot_step_distribution(df, els):
     return fig
 
 def plot_single_case_path(detail, start_date):
-    """케이스 상세 분석 차트"""
+    """
+    [수정] 낙인 여부와 상관없이 'Worst-of' 라인을 항상 그려서
+    만기 시점의 진짜 수익률 위치를 시각적으로 확인하도록 개선
+    """
     fig = go.Figure()
     
     dates = detail["dates"]
-    worst_path = [x * 100 for x in detail["worst_path"]]
+    worst_path = [x * 100 for x in detail["worst_path"]] # 이것이 실제 평가 기준선
     ki_level = detail["ki_level"] * 100
     
     asset_paths = detail.get("asset_paths", {})
     
-    # 개별 자산 경로 (흐리게)
-    colors = ['#FFA07A', '#98FB98', '#87CEFA']
+    # 1. 개별 자산들 흐리게 그리기 (배경)
+    colors = ['#FFA07A', '#98FB98', '#87CEFA'] # 연한 색상들
     for i, (name, path) in enumerate(asset_paths.items()):
         path_pct = [x * 100 for x in path]
         fig.add_trace(go.Scatter(
             x=dates, y=path_pct,
             mode='lines',
             name=name,
-            line=dict(width=1, dash='dot'),
+            line=dict(width=1, dash='dot'), # 점선으로 얇게
             opacity=0.7
         ))
 
-    # Worst-of 라인 (흰색 굵은 실선)
+    # 2. Worst-of 라인 (진한 파란색) - 이것이 진짜 내 돈의 운명
     fig.add_trace(go.Scatter(
         x=dates, y=worst_path,
         mode='lines',
         name='Worst-of (평가 기준)',
-        line=dict(color='white', width=3),
+        line=dict(color='white', width=3), # 흰색 굵은 실선 (다크모드용)
         hovertemplate="<b>Worst-of</b><br>날짜: %{x}<br>성과: %{y:.2f}%<extra></extra>"
     ))
     
-    # 낙인 배리어
+    # 3. 낙인 배리어
     fig.add_hline(
         y=ki_level, line_dash="dash", line_color="red", line_width=2,
         annotation_text=f"낙인 {ki_level:.0f}%", annotation_position="right"
     )
     
-    # 원금 기준선
+    # 4. 원금 기준선
     fig.add_hline(y=100, line_color="gray", line_width=1)
     
-    # 낙인 발생 지점
+    # 5. 낙인 발생 지점 (X 표시)
     if detail["ki_touched"] and detail["ki_touch_date"]:
         ki_date = detail["ki_touch_date"]
         try:
@@ -659,12 +722,16 @@ def plot_single_case_path(detail, start_date):
             ))
         except: pass
         
-    # 상환 지점
+    # 6. 상환 지점 (별표)
     redemption_date = detail["redemption_date"]
     try:
         redemption_idx = dates.index(redemption_date)
         redemption_val = worst_path[redemption_idx]
         
+        # 만기 시점의 Worst 값이 낙인 배리어보다 높은지 낮은지 확인
+        is_happy_ending = (redemption_val >= ki_level) if detail["ki_touched"] else True
+        # ※ 주의: 낙인을 이미 터치했다면, 만기 때 조기상환 배리어(보통 70~80)를 넘어야 함.
+        # 시각적 편의를 위해 수익(+)이면 초록, 손실(-)이면 빨강으로 표시
         final_return = redemption_val - 100
         marker_color = '#00ff00' if final_return >= 0 else '#ff0000'
         
@@ -694,15 +761,17 @@ left, right = st.columns([1.1, 1.9], gap="large")
 LEVEL_OPTIONS = [100, 95, 90, 85, 80, 75, 70, 65, 60, 50]
 
 with left:
-    # 기초자산 선택
+    # Underlying card
     st.markdown('<div class="card"><h3>① 기초자산 선택 (최대 3개)</h3>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     selected = []
     half = (len(ASSETS) + 1) // 2
     
+    # 선택 개수 체크를 위한 임시 카운터
     temp_selected = []
     for i, a in enumerate(ASSETS):
         col = c1 if i < half else c2
+        # 이미 3개 선택되었으면 비활성화
         is_disabled = len(temp_selected) >= 3 and a not in temp_selected
         if col.checkbox(a["name"], key=a["ticker"], disabled=is_disabled):
             temp_selected.append(a)
@@ -712,7 +781,7 @@ with left:
         st.error("기초자산은 최대 3개까지 선택 가능합니다.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # 상품 구조
+    # Structure card
     st.markdown('<div class="card"><h3>② 상품 구조 및 상환 조건</h3>', unsafe_allow_html=True)
 
     r1c1, r1c2 = st.columns(2)
@@ -725,6 +794,7 @@ with left:
 
     st.caption("차수별 상환 기준을 설정합니다 (중복 가능)")
 
+    # 단계별 selectbox
     step_cols = st.columns(min(6, n_steps))
     early_levels = []
     default_levels = [95, 90, 85, 80, 75, 70]
@@ -774,7 +844,7 @@ with left:
     )
 
 with right:
-    # Summary
+    # Compact Summary card
     if selected:
         underlying_txt = " / ".join(a["name"] for a in selected)
         steps_txt = "-".join(str(int(x * 100)) for x in early_levels)
@@ -829,6 +899,7 @@ with right:
                     df = None
             
             if df is not None and not df.empty:
+                # Session State에 저장
                 st.session_state.backtest_result = {
                     'df': df,
                     'prices': prices,
@@ -838,7 +909,7 @@ with right:
                     'end': end
                 }
     
-    # Session State 결과 표시
+    # Session State에서 결과 불러오기
     if st.session_state.backtest_result is not None:
         result = st.session_state.backtest_result
         df = result['df']
@@ -849,30 +920,36 @@ with right:
         end = result.get('end')
         
         if df is not None and not df.empty:
-                # 데이터 확인 expander
+                # 데이터 확인 expander - 탭과 무관하게 항상 표시
                 with st.expander("📊 다운로드된 데이터 확인", expanded=False):
                     if start and end:
                         st.write(f"**요청 기간**: {start} ~ {end}")
                     st.write(f"**실제 기간**: {prices.index[0].date()} ~ {prices.index[-1].date()}")
                     st.write(f"**총 거래일**: {len(prices)}일")
                     
+                    # 실제 가격 차트만 표시 (비율 기준 Y축 분리)
                     fig = go.Figure()
                     
+                    # 가격 범위 계산
                     price_ranges = {}
                     for col in prices.columns:
                         avg_price = prices[col].mean()
                         price_ranges[col] = avg_price
                     
+                    # 최대/최소 가격
                     max_price = max(price_ranges.values())
                     min_price = min(price_ranges.values())
                     ratio = max_price / min_price if min_price > 0 else 1
                     
+                    # 비율이 3배 이상 차이나면 Y축 분리
                     if ratio > 3.0 and len(prices.columns) > 1:
+                        # 중간값 기준으로 분리
                         threshold = (max_price + min_price) / 2
                         
                         y1_cols = [col for col, price in price_ranges.items() if price >= threshold]
                         y2_cols = [col for col, price in price_ranges.items() if price < threshold]
                         
+                        # Y1 축 데이터 (고가)
                         for col in y1_cols:
                             fig.add_trace(go.Scatter(
                                 x=prices.index,
@@ -883,6 +960,7 @@ with right:
                                 hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
                             ))
                         
+                        # Y2 축 데이터 (저가)
                         for col in y2_cols:
                             fig.add_trace(go.Scatter(
                                 x=prices.index,
@@ -897,14 +975,28 @@ with right:
                         fig.update_layout(
                             title="기초자산 가격",
                             xaxis_title="날짜",
-                            yaxis=dict(title=f"가격", side="left"),
-                            yaxis2=dict(title=f"가격", side="right", overlaying="y"),
+                            yaxis=dict(
+                                title=f"가격",
+                                side="left"
+                            ),
+                            yaxis2=dict(
+                                title=f"가격",
+                                side="right",
+                                overlaying="y"
+                            ),
                             height=400,
                             template="plotly_dark",
                             hovermode="x unified",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom",
+                                y=1.02,
+                                xanchor="right",
+                                x=1
+                            )
                         )
                     else:
+                        # 비슷한 가격대 - Y축 1개만 사용
                         for col in prices.columns:
                             fig.add_trace(go.Scatter(
                                 x=prices.index,
@@ -925,6 +1017,7 @@ with right:
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
+                    # 통계 테이블
                     stats = pd.DataFrame({
                         "시작가": prices.iloc[0],
                         "종가": prices.iloc[-1],
@@ -937,51 +1030,7 @@ with right:
                 # 통계 리포트
                 render_compact_stats(df, els)
                 
-                # DCA 시뮬레이션
-                st.markdown("---")
-                st.markdown("### 💰 정액 분할 투자 (DCA) 시뮬레이션")
-                
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    dca_amount = st.number_input(
-                        "주당 투자금액 (만원)",
-                        min_value=10,
-                        max_value=1000,
-                        value=100,
-                        step=10,
-                        help="매주 투자할 금액"
-                    )
-                
-                with col2:
-                    if st.button("💰 DCA 시뮬레이션 실행", use_container_width=True):
-                        dca_result = simulate_dca(df, dca_amount * 10_000)
-                        
-                        years = dca_result['weeks'] / 52
-                        annual_return = ((dca_result['value'] / dca_result['invested']) ** (1/years) - 1) * 100
-                        
-                        profit_color = '#22c55e' if dca_result['profit'] >= 0 else '#ef4444'
-                        
-                        st.markdown(
-                            f"""
-<div class="summary">
-  <div style="font-size:18px; font-weight:700; margin-bottom:10px;">
-    DCA 투자 결과 ({years:.1f}년)
-  </div>
-  <div><b>총 투자금(원금)</b> : {dca_result['invested']:,.0f}원</div>
-  <div><b>수익 발생</b> : +{dca_result['profit_positive']:,.0f}원</div>
-  <div><b>손실 발생</b> : -{dca_result['profit_negative']:,.0f}원</div>
-  <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 10px 0; padding-top: 10px;">
-    <b>최종 수익</b> : <span style="color: {profit_color}; font-size: 20px; font-weight: 700;">{dca_result['profit']:+,.0f}원</span>
-  </div>
-  <div><b>수익률</b> : {dca_result['return_pct']:+.2f}%</div>
-  <div><b>연평균 수익률</b> : {annual_return:+.2f}%</div>
-</div>
-""",
-                            unsafe_allow_html=True
-                        )
-                
-                # 탭
+                # 차트들 - on_change로 탭 위치 저장
                 selected_tab = st.radio(
                     "분석 항목 선택",
                     options=["📊 수익률 분포", "📈 연도별 성과", "🥧 상환 차수", "📋 연도별 테이블", "🔍 케이스 분석"],
@@ -1009,33 +1058,60 @@ with right:
                     st.caption("특정 날짜에 발행된 ELS의 전체 경로를 분석합니다. 낙인 터치 시점, 조기상환/만기상환 여부 등을 확인할 수 있습니다.")
                     st.markdown('</div>', unsafe_allow_html=True)
                     
+                    # 빠른 선택 옵션
                     col1, col2 = st.columns([1, 1])
                     
                     with col1:
                         quick_select = st.selectbox(
                             "빠른 선택",
-                            options=["첫 번째 날짜", "최소 수익률 케이스", "최초 KI 케이스", "직접 입력"],
+                            options=["첫 번째 날짜", "최대 손실 케이스", "최초 KI 케이스", "직접 입력"],
                             index=0,
                             key="quick_select_case"
                         )
                     
+                    # 빠른 선택에 따라 날짜 결정
                     if quick_select == "첫 번째 날짜":
                         selected_date = df["start_date"].iloc[0]
-                    elif quick_select == "최소 수익률 케이스":
+                    elif quick_select == "최대 손실 케이스" and len(df[df["return"] < 0]) > 0:
                         worst_case = df.loc[df["return"].idxmin()]
                         selected_date = worst_case["start_date"]
                     elif quick_select == "최초 KI 케이스" and len(df[df["ki"]]) > 0:
                         selected_date = df[df["ki"]]["start_date"].iloc[0]
-                    else:
+                    else:  # 직접 입력
                         with col2:
+                            # 연-월-일 분리 입력
                             date_col1, date_col2, date_col3 = st.columns(3)
                             
+                            # 사용 가능한 연도 범위
                             min_year = df["start_date"].min().year
                             max_year = df["start_date"].max().year
                             
-                            year = date_col1.number_input("연도", min_value=min_year, max_value=max_year, value=2021, step=1, key="input_year")
-                            month = date_col2.number_input("월", min_value=1, max_value=12, value=2, step=1, key="input_month")
-                            day = date_col3.number_input("일", min_value=1, max_value=31, value=1, step=1, key="input_day")
+                            year = date_col1.number_input(
+                                "연도",
+                                min_value=min_year,
+                                max_value=max_year,
+                                value=2021,
+                                step=1,
+                                key="input_year"
+                            )
+                            
+                            month = date_col2.number_input(
+                                "월",
+                                min_value=1,
+                                max_value=12,
+                                value=2,
+                                step=1,
+                                key="input_month"
+                            )
+                            
+                            day = date_col3.number_input(
+                                "일",
+                                min_value=1,
+                                max_value=31,
+                                value=1,
+                                step=1,
+                                key="input_day"
+                            )
                             
                             try:
                                 selected_date = pd.Timestamp(year=year, month=month, day=day)
@@ -1043,8 +1119,11 @@ with right:
                                 st.error("유효하지 않은 날짜입니다.")
                                 selected_date = df["start_date"].iloc[0]
                     
+                    # 선택된 날짜 표시
                     st.info(f"📅 선택된 발행일: **{selected_date.date()}**")
                     
+                    # 선택된 날짜로 시뮬레이션
+                    # 발행일을 실제 거래일로 스냅
                     start_eval = snap_next_trading_day(prices.index, selected_date)
                     
                     if start_eval is None:
@@ -1064,6 +1143,7 @@ with right:
                                 
                                 r, ki, step, detail = simulate_els(window, els, start_eval, return_detail=True)
                                 
+                                # 결과 요약
                                 st.markdown("#### 📋 케이스 요약")
                                 col1, col2, col3, col4 = st.columns(4)
                                 
@@ -1075,6 +1155,7 @@ with right:
                                 if detail["ki_touched"]:
                                     st.warning(f"⚠️ 낙인 터치: {detail['ki_touch_date'].date()} (최저 {min(detail['worst_path'])*100:.2f}%)")
                                 
+                                # 경로 차트
                                 st.plotly_chart(plot_single_case_path(detail, start_eval), use_container_width=True)
                             except Exception as e:
                                 st.error(f"시뮬레이션 오류: {str(e)}")
@@ -1083,4 +1164,5 @@ with right:
         else:
             st.error("백테스트 결과가 없습니다.")
     else:
+
         st.info("왼쪽에서 조건을 설정하고 실행하세요.")
