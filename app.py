@@ -180,34 +180,52 @@ class StepDownELS:
 # =============================
 # 데이터
 # =============================
+# 기존 download_prices 함수를 이걸로 교체하세요!
+
 @st.cache_data(show_spinner=False, ttl=3600)
 def download_prices(tickers, start, end):
     try:
-        df = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False)
+        # 1. auto_adjust=False로 설정 (Raw 데이터 확보)
+        df = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False)
         
-        # yfinance 버전에 따라 컬럼 구조가 다를 수 있음
+        # 2. 'Adj Close'만 추출 (수정주가 사용)
         if isinstance(df.columns, pd.MultiIndex):
-            # 여러 티커: MultiIndex
-            if "Close" in df.columns.get_level_values(0):
+            # 최신 yfinance: (Price, Ticker) 구조
+            if "Adj Close" in df.columns.get_level_values(0):
+                df = df["Adj Close"]
+            elif "Close" in df.columns.get_level_values(0):
                 df = df["Close"]
         else:
-            # 단일 티커 또는 이미 Close만 있음
-            if "Close" in df.columns:
+            # 구버전 또는 단일 티커
+            if "Adj Close" in df.columns:
+                df = df["Adj Close"]
+            elif "Close" in df.columns:
                 df = df["Close"]
         
-        # 티커가 1개일 경우 Series로 반환되는 것 방지
+        # 3. Series -> DataFrame 변환
         if isinstance(df, pd.Series):
             df = df.to_frame()
-            # 컬럼명이 없거나 숫자면 tickers로 설정
-            if df.columns[0] == 0 or not isinstance(df.columns[0], str):
-                df.columns = tickers if isinstance(tickers, list) else [tickers]
-        
+            # 단일 티커일 경우 컬럼명 지정
+            if isinstance(tickers, str):
+                df.columns = [tickers]
+            elif isinstance(tickers, list) and len(tickers) == 1:
+                df.columns = tickers
+
+        # 4. [핵심] 컬럼 순서를 요청한 'tickers' 리스트 순서대로 강제 정렬
+        # (yfinance는 알파벳순으로 주지만, 우리는 선택한 순서가 필요함)
+        if isinstance(tickers, list) and len(tickers) > 1:
+            # 데이터에 있는 티커만 추려서 정렬 (없는 티커 에러 방지)
+            available_tickers = [t for t in tickers if t in df.columns]
+            df = df[available_tickers]
+
+        # 5. 데이터 정리
         df = df.ffill().dropna()
         
         if df.empty:
             return None
             
         return df
+
     except Exception as e:
         st.error(f"데이터 다운로드 실패: {str(e)}")
         return None
@@ -1182,4 +1200,5 @@ with right:
         else:
             st.error("백테스트 결과가 없습니다.")
     else:
+
         st.info("왼쪽에서 조건을 설정하고 실행하세요.")
