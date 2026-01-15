@@ -186,7 +186,7 @@ class StepDownELS:
 def download_prices(tickers, start, end):
     try:
         # 1. auto_adjust=False로 설정 (Raw 데이터 확보)
-        df = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False)
+        df = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False, threads=False)
         
         # 2. 'Adj Close'만 추출 (수정주가 사용)
         if isinstance(df.columns, pd.MultiIndex):
@@ -1166,3 +1166,4 @@ with right:
     else:
 
         st.info("왼쪽에서 조건을 설정하고 실행하세요.")
+
