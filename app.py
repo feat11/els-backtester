@@ -180,7 +180,6 @@ class StepDownELS:
 # =============================
 # 데이터
 # =============================
-# 기존 download_prices 함수를 이걸로 교체하세요!
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def download_prices(tickers, start, end):
@@ -229,7 +228,31 @@ def download_prices(tickers, start, end):
     except Exception as e:
         st.error(f"데이터 다운로드 실패: {str(e)}")
         return None
+        
+# ==========================================
+# [추가] 마켓 모니터용 도우미 함수들
+# ==========================================
+def get_default_ki(ticker):
+    """지수(^로 시작)는 40%, 개별종목은 20% 기본값 반환"""
+    if ticker.startswith("^"): 
+        return 40
+    else:
+        return 20
 
+def render_mini_chart(series, color_code):
+    """미니 차트 그리기"""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=series.index, y=series.values,
+        mode='lines', line=dict(color=color_code, width=2), hoverinfo='y'
+    ))
+    fig.update_layout(
+        showlegend=False, margin=dict(l=0, r=0, t=0, b=0), height=50,
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(visible=False), yaxis=dict(visible=False)
+    )
+    return fig
+        
 # =============================
 # 캘린더 기반 관측일 계산
 # =============================
@@ -845,325 +868,406 @@ with left:
 
 with right:
     # Compact Summary card
-    if selected:
-        underlying_txt = " / ".join(a["name"] for a in selected)
-        steps_txt = "-".join(str(int(x * 100)) for x in early_levels)
-        
-        st.markdown(f"""
-        <div class="summary">
-            <div style="font-size:15px; font-weight:700; margin-bottom:8px; color:#e0e0e0;">⚙️ 설정 요약</div>
-            <div class="summary-row">
-                <div><span class="summary-label">기초자산:</span><span class="summary-val">{underlying_txt}</span></div>
-                <div><span class="summary-label">수익률:</span><span class="summary-val" style="color:#4facfe">{coupon:.1f}%</span></div>
-            </div>
-            <div class="summary-row">
-                <div><span class="summary-label">구조:</span><span class="summary-val">{maturity}M / {obs}M ({n_steps}회)</span></div>
-                <div><span class="summary-label">낙인:</span><span class="summary-val" style="color:#ff6b6b">{ki}%</span></div>
-            </div>
-            <div style="margin-top:4px; font-size:13px; color:#aaa;">
-                <span class="summary-label">상환조건:</span> {steps_txt}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["📊 백테스트 분석", "🌍 마켓 모니터 (New)"])
 
-    if run:
-        tickers = [a["ticker"] for a in selected]
-        names = [a["name"] for a in selected]
-
-        end = date.today()
-        start = date(end.year - lookback, end.month, end.day)
-
-        with st.spinner("Downloading data..."):
-            prices = download_prices(tickers, start, end)
+    with tab1:
+        if selected:
+            underlying_txt = " / ".join(a["name"] for a in selected)
+            steps_txt = "-".join(str(int(x * 100)) for x in early_levels)
             
-        if prices is None or prices.empty:
-            st.error("데이터를 가져올 수 없습니다. 티커를 확인하거나 기간을 조정해주세요.")
-        else:
-            prices.columns = names
-
-            els = StepDownELS(
-                maturity_months=maturity,
-                obs_interval_months=obs,
-                early_levels=early_levels,
-                coupon_annual=coupon / 100.0,
-                knock_in=ki / 100.0
-            )
-
-            with st.spinner("Running backtest..."):
-                try:
-                    df = run_backtest(prices, els, show_progress=True)
-                except Exception as e:
-                    st.error(f"백테스트 실행 중 오류: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-                    df = None
+            st.markdown(f"""
+            <div class="summary">
+                <div style="font-size:15px; font-weight:700; margin-bottom:8px; color:#e0e0e0;">⚙️ 설정 요약</div>
+                <div class="summary-row">
+                    <div><span class="summary-label">기초자산:</span><span class="summary-val">{underlying_txt}</span></div>
+                    <div><span class="summary-label">수익률:</span><span class="summary-val" style="color:#4facfe">{coupon:.1f}%</span></div>
+                </div>
+                <div class="summary-row">
+                    <div><span class="summary-label">구조:</span><span class="summary-val">{maturity}M / {obs}M ({n_steps}회)</span></div>
+                    <div><span class="summary-label">낙인:</span><span class="summary-val" style="color:#ff6b6b">{ki}%</span></div>
+                </div>
+                <div style="margin-top:4px; font-size:13px; color:#aaa;">
+                    <span class="summary-label">상환조건:</span> {steps_txt}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+        if run:
+            tickers = [a["ticker"] for a in selected]
+            names = [a["name"] for a in selected]
+    
+            end = date.today()
+            start = date(end.year - lookback, end.month, end.day)
+    
+            with st.spinner("Downloading data..."):
+                prices = download_prices(tickers, start, end)
+                
+            if prices is None or prices.empty:
+                st.error("데이터를 가져올 수 없습니다. 티커를 확인하거나 기간을 조정해주세요.")
+            else:
+                prices.columns = names
+    
+                els = StepDownELS(
+                    maturity_months=maturity,
+                    obs_interval_months=obs,
+                    early_levels=early_levels,
+                    coupon_annual=coupon / 100.0,
+                    knock_in=ki / 100.0
+                )
+    
+                with st.spinner("Running backtest..."):
+                    try:
+                        df = run_backtest(prices, els, show_progress=True)
+                    except Exception as e:
+                        st.error(f"백테스트 실행 중 오류: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                        df = None
+                
+                if df is not None and not df.empty:
+                    # Session State에 저장
+                    st.session_state.backtest_result = {
+                        'df': df,
+                        'prices': prices,
+                        'els': els,
+                        'maturity': maturity,
+                        'start': start,
+                        'end': end
+                    }
+        
+        # Session State에서 결과 불러오기
+        if st.session_state.backtest_result is not None:
+            result = st.session_state.backtest_result
+            df = result['df']
+            prices = result['prices']
+            els = result['els']
+            maturity = result['maturity']
+            start = result.get('start')
+            end = result.get('end')
             
             if df is not None and not df.empty:
-                # Session State에 저장
-                st.session_state.backtest_result = {
-                    'df': df,
-                    'prices': prices,
-                    'els': els,
-                    'maturity': maturity,
-                    'start': start,
-                    'end': end
-                }
-    
-    # Session State에서 결과 불러오기
-    if st.session_state.backtest_result is not None:
-        result = st.session_state.backtest_result
-        df = result['df']
-        prices = result['prices']
-        els = result['els']
-        maturity = result['maturity']
-        start = result.get('start')
-        end = result.get('end')
-        
-        if df is not None and not df.empty:
-                # 데이터 확인 expander - 탭과 무관하게 항상 표시
-                with st.expander("📊 다운로드된 데이터 확인", expanded=False):
-                    if start and end:
-                        st.write(f"**요청 기간**: {start} ~ {end}")
-                    st.write(f"**실제 기간**: {prices.index[0].date()} ~ {prices.index[-1].date()}")
-                    st.write(f"**총 거래일**: {len(prices)}일")
-                    
-                    # 실제 가격 차트만 표시 (비율 기준 Y축 분리)
-                    fig = go.Figure()
-                    
-                    # 가격 범위 계산
-                    price_ranges = {}
-                    for col in prices.columns:
-                        avg_price = prices[col].mean()
-                        price_ranges[col] = avg_price
-                    
-                    # 최대/최소 가격
-                    max_price = max(price_ranges.values())
-                    min_price = min(price_ranges.values())
-                    ratio = max_price / min_price if min_price > 0 else 1
-                    
-                    # 비율이 3배 이상 차이나면 Y축 분리
-                    if ratio > 3.0 and len(prices.columns) > 1:
-                        # 중간값 기준으로 분리
-                        threshold = (max_price + min_price) / 2
+                    # 데이터 확인 expander - 탭과 무관하게 항상 표시
+                    with st.expander("📊 다운로드된 데이터 확인", expanded=False):
+                        if start and end:
+                            st.write(f"**요청 기간**: {start} ~ {end}")
+                        st.write(f"**실제 기간**: {prices.index[0].date()} ~ {prices.index[-1].date()}")
+                        st.write(f"**총 거래일**: {len(prices)}일")
                         
-                        y1_cols = [col for col, price in price_ranges.items() if price >= threshold]
-                        y2_cols = [col for col, price in price_ranges.items() if price < threshold]
+                        # 실제 가격 차트만 표시 (비율 기준 Y축 분리)
+                        fig = go.Figure()
                         
-                        # Y1 축 데이터 (고가)
-                        for col in y1_cols:
-                            fig.add_trace(go.Scatter(
-                                x=prices.index,
-                                y=prices[col],
-                                mode='lines',
-                                name=f"{col} (좌)",
-                                yaxis='y1',
-                                hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
-                            ))
-                        
-                        # Y2 축 데이터 (저가)
-                        for col in y2_cols:
-                            fig.add_trace(go.Scatter(
-                                x=prices.index,
-                                y=prices[col],
-                                mode='lines',
-                                name=f"{col} (우)",
-                                yaxis='y2',
-                                line=dict(dash='dot'),
-                                hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
-                            ))
-                        
-                        fig.update_layout(
-                            title="기초자산 가격",
-                            xaxis_title="날짜",
-                            yaxis=dict(
-                                title=f"가격",
-                                side="left"
-                            ),
-                            yaxis2=dict(
-                                title=f"가격",
-                                side="right",
-                                overlaying="y"
-                            ),
-                            height=400,
-                            template="plotly_dark",
-                            hovermode="x unified",
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=1.02,
-                                xanchor="right",
-                                x=1
-                            )
-                        )
-                    else:
-                        # 비슷한 가격대 - Y축 1개만 사용
+                        # 가격 범위 계산
+                        price_ranges = {}
                         for col in prices.columns:
-                            fig.add_trace(go.Scatter(
-                                x=prices.index,
-                                y=prices[col],
-                                mode='lines',
-                                name=col,
-                                hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
-                            ))
+                            avg_price = prices[col].mean()
+                            price_ranges[col] = avg_price
                         
-                        fig.update_layout(
-                            title="기초자산 가격",
-                            xaxis_title="날짜",
-                            yaxis_title="가격",
-                            height=400,
-                            template="plotly_dark",
-                            hovermode="x unified"
-                        )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # 통계 테이블
-                    stats = pd.DataFrame({
-                        "시작가": prices.iloc[0],
-                        "종가": prices.iloc[-1],
-                        "최고가": prices.max(),
-                        "최저가": prices.min(),
-                        "수익률(%)": ((prices.iloc[-1] / prices.iloc[0] - 1) * 100).round(2)
-                    })
-                    st.dataframe(stats)
-                
-                # 통계 리포트
-                render_compact_stats(df, els)
-                
-                # 차트들 - on_change로 탭 위치 저장
-                selected_tab = st.radio(
-                    "분석 항목 선택",
-                    options=["📊 수익률 분포", "📈 연도별 성과", "🥧 상환 차수", "📋 연도별 테이블", "🔍 케이스 분석"],
-                    horizontal=True,
-                    key="selected_tab_radio",
-                    label_visibility="collapsed"
-                )
-                
-                if selected_tab == "📊 수익률 분포":
-                    st.plotly_chart(plot_return_distribution(df), use_container_width=True)
-                
-                elif selected_tab == "📈 연도별 성과":
-                    st.plotly_chart(plot_yearly_performance(df), use_container_width=True)
-                
-                elif selected_tab == "🥧 상환 차수":
-                    st.plotly_chart(plot_step_distribution(df, els), use_container_width=True)
-                
-                elif selected_tab == "📋 연도별 테이블":
-                    yearly_report = build_yearly_report(df)
-                    st.dataframe(yearly_report, use_container_width=True)
-                
-                elif selected_tab == "🔍 케이스 분석":
-                    st.markdown("### 🔍 특정 발행일 케이스 분석")
-                    st.markdown('<div class="debug-highlight">', unsafe_allow_html=True)
-                    st.caption("특정 날짜에 발행된 ELS의 전체 경로를 분석합니다. 낙인 터치 시점, 조기상환/만기상환 여부 등을 확인할 수 있습니다.")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # 빠른 선택 옵션
-                    col1, col2 = st.columns([1, 1])
-                    
-                    with col1:
-                        quick_select = st.selectbox(
-                            "빠른 선택",
-                            options=["첫 번째 날짜", "최대 손실 케이스", "최초 KI 케이스", "직접 입력"],
-                            index=0,
-                            key="quick_select_case"
-                        )
-                    
-                    # 빠른 선택에 따라 날짜 결정
-                    if quick_select == "첫 번째 날짜":
-                        selected_date = df["start_date"].iloc[0]
-                    elif quick_select == "최대 손실 케이스" and len(df[df["return"] < 0]) > 0:
-                        worst_case = df.loc[df["return"].idxmin()]
-                        selected_date = worst_case["start_date"]
-                    elif quick_select == "최초 KI 케이스" and len(df[df["ki"]]) > 0:
-                        selected_date = df[df["ki"]]["start_date"].iloc[0]
-                    else:  # 직접 입력
-                        with col2:
-                            # 연-월-일 분리 입력
-                            date_col1, date_col2, date_col3 = st.columns(3)
-                            
-                            # 사용 가능한 연도 범위
-                            min_year = df["start_date"].min().year
-                            max_year = df["start_date"].max().year
-                            
-                            year = date_col1.number_input(
-                                "연도",
-                                min_value=min_year,
-                                max_value=max_year,
-                                value=2021,
-                                step=1,
-                                key="input_year"
-                            )
-                            
-                            month = date_col2.number_input(
-                                "월",
-                                min_value=1,
-                                max_value=12,
-                                value=2,
-                                step=1,
-                                key="input_month"
-                            )
-                            
-                            day = date_col3.number_input(
-                                "일",
-                                min_value=1,
-                                max_value=31,
-                                value=1,
-                                step=1,
-                                key="input_day"
-                            )
-                            
-                            try:
-                                selected_date = pd.Timestamp(year=year, month=month, day=day)
-                            except:
-                                st.error("유효하지 않은 날짜입니다.")
-                                selected_date = df["start_date"].iloc[0]
-                    
-                    # 선택된 날짜 표시
-                    st.info(f"📅 선택된 발행일: **{selected_date.date()}**")
-                    
-                    # 선택된 날짜로 시뮬레이션
-                    # 발행일을 실제 거래일로 스냅
-                    start_eval = snap_next_trading_day(prices.index, selected_date)
-                    
-                    if start_eval is None:
-                        st.warning(f"선택한 날짜({selected_date.date()}) 이후에 거래일이 없습니다.")
-                    else:
-                        if start_eval != selected_date:
-                            st.caption(f"💡 {selected_date.date()}는 거래일이 아니므로 다음 거래일({start_eval.date()})로 분석합니다.")
+                        # 최대/최소 가격
+                        max_price = max(price_ranges.values())
+                        min_price = min(price_ranges.values())
+                        ratio = max_price / min_price if min_price > 0 else 1
                         
-                        maturity_date = pd.Timestamp(start_eval + relativedelta(months=maturity))
-                        mat_eval = snap_next_trading_day(prices.index, maturity_date)
-                        
-                        if mat_eval is None:
-                            st.warning(f"만기일({maturity_date.date()})이 데이터 범위를 벗어납니다.")
+                        # 비율이 3배 이상 차이나면 Y축 분리
+                        if ratio > 3.0 and len(prices.columns) > 1:
+                            # 중간값 기준으로 분리
+                            threshold = (max_price + min_price) / 2
+                            
+                            y1_cols = [col for col, price in price_ranges.items() if price >= threshold]
+                            y2_cols = [col for col, price in price_ranges.items() if price < threshold]
+                            
+                            # Y1 축 데이터 (고가)
+                            for col in y1_cols:
+                                fig.add_trace(go.Scatter(
+                                    x=prices.index,
+                                    y=prices[col],
+                                    mode='lines',
+                                    name=f"{col} (좌)",
+                                    yaxis='y1',
+                                    hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
+                                ))
+                            
+                            # Y2 축 데이터 (저가)
+                            for col in y2_cols:
+                                fig.add_trace(go.Scatter(
+                                    x=prices.index,
+                                    y=prices[col],
+                                    mode='lines',
+                                    name=f"{col} (우)",
+                                    yaxis='y2',
+                                    line=dict(dash='dot'),
+                                    hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
+                                ))
+                            
+                            fig.update_layout(
+                                title="기초자산 가격",
+                                xaxis_title="날짜",
+                                yaxis=dict(
+                                    title=f"가격",
+                                    side="left"
+                                ),
+                                yaxis2=dict(
+                                    title=f"가격",
+                                    side="right",
+                                    overlaying="y"
+                                ),
+                                height=400,
+                                template="plotly_dark",
+                                hovermode="x unified",
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom",
+                                    y=1.02,
+                                    xanchor="right",
+                                    x=1
+                                )
+                            )
                         else:
-                            try:
-                                window = prices.loc[start_eval:mat_eval]
+                            # 비슷한 가격대 - Y축 1개만 사용
+                            for col in prices.columns:
+                                fig.add_trace(go.Scatter(
+                                    x=prices.index,
+                                    y=prices[col],
+                                    mode='lines',
+                                    name=col,
+                                    hovertemplate=f"{col}<br>날짜: %{{x}}<br>가격: %{{y:,.2f}}<extra></extra>"
+                                ))
+                            
+                            fig.update_layout(
+                                title="기초자산 가격",
+                                xaxis_title="날짜",
+                                yaxis_title="가격",
+                                height=400,
+                                template="plotly_dark",
+                                hovermode="x unified"
+                            )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # 통계 테이블
+                        stats = pd.DataFrame({
+                            "시작가": prices.iloc[0],
+                            "종가": prices.iloc[-1],
+                            "최고가": prices.max(),
+                            "최저가": prices.min(),
+                            "수익률(%)": ((prices.iloc[-1] / prices.iloc[0] - 1) * 100).round(2)
+                        })
+                        st.dataframe(stats)
+                    
+                    # 통계 리포트
+                    render_compact_stats(df, els)
+                    
+                    # 차트들 - on_change로 탭 위치 저장
+                    selected_tab = st.radio(
+                        "분석 항목 선택",
+                        options=["📊 수익률 분포", "📈 연도별 성과", "🥧 상환 차수", "📋 연도별 테이블", "🔍 케이스 분석"],
+                        horizontal=True,
+                        key="selected_tab_radio",
+                        label_visibility="collapsed"
+                    )
+                    
+                    if selected_tab == "📊 수익률 분포":
+                        st.plotly_chart(plot_return_distribution(df), use_container_width=True)
+                    
+                    elif selected_tab == "📈 연도별 성과":
+                        st.plotly_chart(plot_yearly_performance(df), use_container_width=True)
+                    
+                    elif selected_tab == "🥧 상환 차수":
+                        st.plotly_chart(plot_step_distribution(df, els), use_container_width=True)
+                    
+                    elif selected_tab == "📋 연도별 테이블":
+                        yearly_report = build_yearly_report(df)
+                        st.dataframe(yearly_report, use_container_width=True)
+                    
+                    elif selected_tab == "🔍 케이스 분석":
+                        st.markdown("### 🔍 특정 발행일 케이스 분석")
+                        st.markdown('<div class="debug-highlight">', unsafe_allow_html=True)
+                        st.caption("특정 날짜에 발행된 ELS의 전체 경로를 분석합니다. 낙인 터치 시점, 조기상환/만기상환 여부 등을 확인할 수 있습니다.")
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        # 빠른 선택 옵션
+                        col1, col2 = st.columns([1, 1])
+                        
+                        with col1:
+                            quick_select = st.selectbox(
+                                "빠른 선택",
+                                options=["첫 번째 날짜", "최대 손실 케이스", "최초 KI 케이스", "직접 입력"],
+                                index=0,
+                                key="quick_select_case"
+                            )
+                        
+                        # 빠른 선택에 따라 날짜 결정
+                        if quick_select == "첫 번째 날짜":
+                            selected_date = df["start_date"].iloc[0]
+                        elif quick_select == "최대 손실 케이스" and len(df[df["return"] < 0]) > 0:
+                            worst_case = df.loc[df["return"].idxmin()]
+                            selected_date = worst_case["start_date"]
+                        elif quick_select == "최초 KI 케이스" and len(df[df["ki"]]) > 0:
+                            selected_date = df[df["ki"]]["start_date"].iloc[0]
+                        else:  # 직접 입력
+                            with col2:
+                                # 연-월-일 분리 입력
+                                date_col1, date_col2, date_col3 = st.columns(3)
                                 
-                                r, ki, step, detail = simulate_els(window, els, start_eval, return_detail=True)
+                                # 사용 가능한 연도 범위
+                                min_year = df["start_date"].min().year
+                                max_year = df["start_date"].max().year
                                 
-                                # 결과 요약
-                                st.markdown("#### 📋 케이스 요약")
-                                col1, col2, col3, col4 = st.columns(4)
+                                year = date_col1.number_input(
+                                    "연도",
+                                    min_value=min_year,
+                                    max_value=max_year,
+                                    value=2021,
+                                    step=1,
+                                    key="input_year"
+                                )
                                 
-                                col1.metric("수익률", f"{r*100:+.2f}%")
-                                col2.metric("낙인 터치", "예" if ki else "아니오", delta="Recovery" if (ki and r >= 0) else None)
-                                col3.metric("상환 방식", f"{step}차 조기" if step else "만기")
-                                col4.metric("상환일", str(detail["redemption_date"].date()))
+                                month = date_col2.number_input(
+                                    "월",
+                                    min_value=1,
+                                    max_value=12,
+                                    value=2,
+                                    step=1,
+                                    key="input_month"
+                                )
                                 
-                                if detail["ki_touched"]:
-                                    st.warning(f"⚠️ 낙인 터치: {detail['ki_touch_date'].date()} (최저 {min(detail['worst_path'])*100:.2f}%)")
+                                day = date_col3.number_input(
+                                    "일",
+                                    min_value=1,
+                                    max_value=31,
+                                    value=1,
+                                    step=1,
+                                    key="input_day"
+                                )
                                 
-                                # 경로 차트
-                                st.plotly_chart(plot_single_case_path(detail, start_eval), use_container_width=True)
-                            except Exception as e:
-                                st.error(f"시뮬레이션 오류: {str(e)}")
-                                import traceback
-                                st.code(traceback.format_exc())
+                                try:
+                                    selected_date = pd.Timestamp(year=year, month=month, day=day)
+                                except:
+                                    st.error("유효하지 않은 날짜입니다.")
+                                    selected_date = df["start_date"].iloc[0]
+                        
+                        # 선택된 날짜 표시
+                        st.info(f"📅 선택된 발행일: **{selected_date.date()}**")
+                        
+                        # 선택된 날짜로 시뮬레이션
+                        # 발행일을 실제 거래일로 스냅
+                        start_eval = snap_next_trading_day(prices.index, selected_date)
+                        
+                        if start_eval is None:
+                            st.warning(f"선택한 날짜({selected_date.date()}) 이후에 거래일이 없습니다.")
+                        else:
+                            if start_eval != selected_date:
+                                st.caption(f"💡 {selected_date.date()}는 거래일이 아니므로 다음 거래일({start_eval.date()})로 분석합니다.")
+                            
+                            maturity_date = pd.Timestamp(start_eval + relativedelta(months=maturity))
+                            mat_eval = snap_next_trading_day(prices.index, maturity_date)
+                            
+                            if mat_eval is None:
+                                st.warning(f"만기일({maturity_date.date()})이 데이터 범위를 벗어납니다.")
+                            else:
+                                try:
+                                    window = prices.loc[start_eval:mat_eval]
+                                    
+                                    r, ki, step, detail = simulate_els(window, els, start_eval, return_detail=True)
+                                    
+                                    # 결과 요약
+                                    st.markdown("#### 📋 케이스 요약")
+                                    col1, col2, col3, col4 = st.columns(4)
+                                    
+                                    col1.metric("수익률", f"{r*100:+.2f}%")
+                                    col2.metric("낙인 터치", "예" if ki else "아니오", delta="Recovery" if (ki and r >= 0) else None)
+                                    col3.metric("상환 방식", f"{step}차 조기" if step else "만기")
+                                    col4.metric("상환일", str(detail["redemption_date"].date()))
+                                    
+                                    if detail["ki_touched"]:
+                                        st.warning(f"⚠️ 낙인 터치: {detail['ki_touch_date'].date()} (최저 {min(detail['worst_path'])*100:.2f}%)")
+                                    
+                                    # 경로 차트
+                                    st.plotly_chart(plot_single_case_path(detail, start_eval), use_container_width=True)
+                                except Exception as e:
+                                    st.error(f"시뮬레이션 오류: {str(e)}")
+                                    import traceback
+                                    st.code(traceback.format_exc())
+            else:
+                st.error("백테스트 결과가 없습니다.")
         else:
-            st.error("백테스트 결과가 없습니다.")
-    else:
+    
+            st.info("왼쪽에서 조건을 설정하고 실행하세요.")
+    
+    with tab2:
+        st.markdown("### 🌍 글로벌 마켓 상세 모니터 (KI 시뮬레이션)")
+        st.caption("실시간 시세를 조회하고, 내가 설정한 낙인(KI) 가격을 계산합니다.")
 
-        st.info("왼쪽에서 조건을 설정하고 실행하세요.")
+        # 새로고침 버튼
+        if st.button("🔄 최신 데이터 불러오기", type="primary", key="refresh_market"):
+            monitor_tickers = [a["ticker"] for a in ASSETS]
+            m_start = date.today() - relativedelta(days=400)
+            m_end = date.today()
+            
+            with st.spinner("시장 데이터 분석 중..."):
+                # threads=False 옵션은 download_prices 함수 안에 이미 적용되어 있어야 합니다.
+                m_df = download_prices(monitor_tickers, m_start, m_end)
+                
+            if m_df is not None:
+                m_df = m_df.ffill()
+                
+                # 4열 그리드 배치
+                cols = st.columns(4)
+                
+                for idx, asset in enumerate(ASSETS):
+                    ticker = asset["ticker"]
+                    name = asset["name"]
+                    
+                    if ticker in m_df.columns:
+                        series = m_df[ticker].dropna()
+                        if len(series) < 2: continue
+                        
+                        # 데이터 계산
+                        last_price = series.iloc[-1]
+                        prev_price = series.iloc[-2]
+                        chg_pct = (last_price - prev_price) / prev_price * 100
+                        
+                        high_52 = series.max()
+                        low_52 = series.min()
+                        pos = (last_price - low_52) / (high_52 - low_52) * 100
+                        
+                        # 색상
+                        chart_color = "#00ff88" if chg_pct >= 0 else "#ff4b4b"
+                        arrow = "▲" if chg_pct >= 0 else "▼"
+                        color_cls = "up" if chg_pct >= 0 else "down"
+                        
+                        # 카드 그리기
+                        with cols[idx % 4]:
+                            st.markdown(f"""
+                            <div class="metric-card" style="margin-bottom:5px;">
+                                <div style="font-size:14px; font-weight:bold; color:#ddd;">{name}</div>
+                                <div style="font-size:11px; color:#888;">{ticker}</div>
+                                <div style="margin: 8px 0;">
+                                    <span style="font-size:22px; font-weight:bold; color:#fff;">{last_price:,.2f}</span>
+                                    <span class="{color_cls}" style="font-size:13px; font-weight:bold; margin-left:5px;">{arrow} {chg_pct:.2f}%</span>
+                                </div>
+                                <div style="width:100%; height:4px; background:#333; margin-top:5px;">
+                                    <div style="width:{pos}%; height:100%; background:linear-gradient(90deg, #4facfe, #00f2fe);"></div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # [핵심] 낙인 입력 및 계산 로직
+                            default_ki = get_default_ki(ticker) # 지수 40, 종목 20 자동 선택
+                            
+                            c_input, c_val = st.columns([1, 1.3])
+                            with c_input:
+                                user_ki = st.number_input("낙인(%)", value=default_ki, step=5, key=f"ki_{ticker}", label_visibility="collapsed")
+                            with c_val:
+                                ki_price = last_price * (user_ki / 100.0)
+                                st.markdown(f"<div style='text-align:right; color:#ff6b6b; font-weight:bold; font-size:15px; padding-top:5px;'>KI: {ki_price:,.0f}</div>", unsafe_allow_html=True)
+
+                            # 미니 차트
+                            mini_data = series.iloc[-120:]
+                            fig = render_mini_chart(mini_data, chart_color)
+                            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                            st.markdown("---")
+            else:
+                st.error("데이터 로딩 실패")
+        else:
+            st.info("버튼을 눌러 데이터를 조회하세요.")
 
