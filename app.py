@@ -1197,7 +1197,11 @@ with right:
         st.markdown("### 🌍 글로벌 마켓 상세 모니터 (KI 시뮬레이션)")
         st.caption("실시간 시세를 조회하고, 내가 설정한 낙인(KI) 가격을 계산합니다.")
 
-        # 새로고침 버튼
+        # [수정 1] 데이터 저장소(Session State) 초기화
+        if 'monitor_df' not in st.session_state:
+            st.session_state['monitor_df'] = None
+
+        # [수정 2] 버튼을 누르면 -> 데이터를 다운받아 '저장소'에 넣음
         if st.button("🔄 최신 데이터 불러오기", type="primary", key="refresh_market"):
             monitor_tickers = [a["ticker"] for a in ASSETS]
             m_start = date.today() - relativedelta(days=400)
@@ -1208,66 +1212,71 @@ with right:
                 m_df = download_prices(monitor_tickers, m_start, m_end)
                 
             if m_df is not None:
-                m_df = m_df.ffill()
-                
-                # 4열 그리드 배치
-                cols = st.columns(4)
-                
-                for idx, asset in enumerate(ASSETS):
-                    ticker = asset["ticker"]
-                    name = asset["name"]
-                    
-                    if ticker in m_df.columns:
-                        series = m_df[ticker].dropna()
-                        if len(series) < 2: continue
-                        
-                        # 데이터 계산
-                        last_price = series.iloc[-1]
-                        prev_price = series.iloc[-2]
-                        chg_pct = (last_price - prev_price) / prev_price * 100
-                        
-                        high_52 = series.max()
-                        low_52 = series.min()
-                        pos = (last_price - low_52) / (high_52 - low_52) * 100
-                        
-                        # 색상
-                        chart_color = "#00ff88" if chg_pct >= 0 else "#ff4b4b"
-                        arrow = "▲" if chg_pct >= 0 else "▼"
-                        color_cls = "up" if chg_pct >= 0 else "down"
-                        
-                        # 카드 그리기
-                        with cols[idx % 4]:
-                            st.markdown(f"""
-                            <div class="metric-card" style="margin-bottom:5px;">
-                                <div style="font-size:14px; font-weight:bold; color:#ddd;">{name}</div>
-                                <div style="font-size:11px; color:#888;">{ticker}</div>
-                                <div style="margin: 8px 0;">
-                                    <span style="font-size:22px; font-weight:bold; color:#fff;">{last_price:,.2f}</span>
-                                    <span class="{color_cls}" style="font-size:13px; font-weight:bold; margin-left:5px;">{arrow} {chg_pct:.2f}%</span>
-                                </div>
-                                <div style="width:100%; height:4px; background:#333; margin-top:5px;">
-                                    <div style="width:{pos}%; height:100%; background:linear-gradient(90deg, #4facfe, #00f2fe);"></div>
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            # [핵심] 낙인 입력 및 계산 로직
-                            default_ki = get_default_ki(ticker) # 지수 40, 종목 20 자동 선택
-                            
-                            c_input, c_val = st.columns([1, 1.3])
-                            with c_input:
-                                user_ki = st.number_input("낙인(%)", value=default_ki, step=5, key=f"ki_{ticker}", label_visibility="collapsed")
-                            with c_val:
-                                ki_price = last_price * (user_ki / 100.0)
-                                st.markdown(f"<div style='text-align:right; color:#ff6b6b; font-weight:bold; font-size:15px; padding-top:5px;'>KI: {ki_price:,.0f}</div>", unsafe_allow_html=True)
-
-                            # 미니 차트
-                            mini_data = series.iloc[-120:]
-                            fig = render_mini_chart(mini_data, chart_color)
-                            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                            st.markdown("---")
+                st.session_state['monitor_df'] = m_df.ffill()
             else:
-                st.error("데이터 로딩 실패")
+                st.error("데이터 로딩 실패. 잠시 후 다시 시도해주세요.")
+
+        # [수정 3] '저장소'에 데이터가 있으면 화면을 그림 (버튼 클릭 여부와 무관하게 유지됨)
+        if st.session_state['monitor_df'] is not None:
+            m_df = st.session_state['monitor_df']
+            
+            # 4열 그리드 배치
+            cols = st.columns(4)
+            
+            for idx, asset in enumerate(ASSETS):
+                ticker = asset["ticker"]
+                name = asset["name"]
+                
+                if ticker in m_df.columns:
+                    series = m_df[ticker].dropna()
+                    if len(series) < 2: continue
+                    
+                    # 데이터 계산
+                    last_price = series.iloc[-1]
+                    prev_price = series.iloc[-2]
+                    chg_pct = (last_price - prev_price) / prev_price * 100
+                    
+                    high_52 = series.max()
+                    low_52 = series.min()
+                    pos = (last_price - low_52) / (high_52 - low_52) * 100
+                    
+                    # 색상
+                    chart_color = "#00ff88" if chg_pct >= 0 else "#ff4b4b"
+                    arrow = "▲" if chg_pct >= 0 else "▼"
+                    color_cls = "up" if chg_pct >= 0 else "down"
+                    
+                    # 카드 그리기
+                    with cols[idx % 4]:
+                        st.markdown(f"""
+                        <div class="metric-card" style="margin-bottom:5px;">
+                            <div style="font-size:14px; font-weight:bold; color:#ddd;">{name}</div>
+                            <div style="font-size:11px; color:#888;">{ticker}</div>
+                            <div style="margin: 8px 0;">
+                                <span style="font-size:22px; font-weight:bold; color:#fff;">{last_price:,.2f}</span>
+                                <span class="{color_cls}" style="font-size:13px; font-weight:bold; margin-left:5px;">{arrow} {chg_pct:.2f}%</span>
+                            </div>
+                            <div style="width:100%; height:4px; background:#333; margin-top:5px;">
+                                <div style="width:{pos}%; height:100%; background:linear-gradient(90deg, #4facfe, #00f2fe);"></div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # [핵심] 낙인 입력 및 계산 로직
+                        default_ki = get_default_ki(ticker) # 지수 40, 종목 20 자동 선택
+                        
+                        c_input, c_val = st.columns([1, 1.3])
+                        with c_input:
+                            # key를 유니크하게 설정하여 충돌 방지
+                            user_ki = st.number_input("낙인(%)", value=default_ki, step=5, key=f"ki_{ticker}", label_visibility="collapsed")
+                        with c_val:
+                            ki_price = last_price * (user_ki / 100.0)
+                            st.markdown(f"<div style='text-align:right; color:#ff6b6b; font-weight:bold; font-size:15px; padding-top:5px;'>KI: {ki_price:,.0f}</div>", unsafe_allow_html=True)
+
+                        # 미니 차트
+                        mini_data = series.iloc[-120:]
+                        fig = render_mini_chart(mini_data, chart_color)
+                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                        st.markdown("---")
         else:
             st.info("버튼을 눌러 데이터를 조회하세요.")
 
