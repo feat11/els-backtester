@@ -2,5 +2,6 @@ streamlit
 pandas
 numpy
 yfinance>=0.2.50
-
 plotly
+lxml>=4.9.1
+requests
